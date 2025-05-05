@@ -19,18 +19,22 @@ def black_scholes(S, K, T, r, sigma, option_type='call'):
         delta = norm.cdf(d1)
     else:
         delta = -norm.cdf(-d1)
-    print(delta,"-----")
     return delta
 
-def calculate_real_pnl(data, K, r, sigma, option_type, use_custom_T=False, T_input=None):
-    dates = data.index
-    spot_prices = data['Spot'].values
+def calculate_real_pnl(data, K, r, sigma, option_type, start_date, end_date, use_custom_T=False, T_input=None):
+    # filter the data based on the selected date range
+    filtered_data = data[(data.index >= start_date) & (data.index <= end_date)]
+    if len(filtered_data) == 0:
+        raise ValueError("no data available in the selected date range")
+
+    dates = filtered_data.index
+    spot_prices = filtered_data['Spot'].values
     dt = (dates[-1] - dates[0]).days / 365.25
     
-    cash = np.zeros(len(data))
-    stock_qty = np.zeros(len(data))
-    pnl = np.zeros(len(data))
-    deltas = np.zeros(len(data))
+    cash = np.zeros(len(filtered_data))
+    stock_qty = np.zeros(len(filtered_data))
+    pnl = np.zeros(len(filtered_data))
+    deltas = np.zeros(len(filtered_data))
     
     # calculate the initial time to expiration
     if use_custom_T:
@@ -76,9 +80,36 @@ uploaded_file = st.file_uploader("Upload Market Data (CSV)", type="csv")
 if uploaded_file:
     data = pd.read_csv(uploaded_file, parse_dates=['Date'], index_col='Date')
     data.sort_index(inplace=True)
+
+    min_date = data.index.min()
+    max_date = data.index.max()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Start Date", 
+                                 value=min_date,
+                                 min_value=min_date,
+                                 max_value=max_date)
+    with col2:
+        end_date = st.date_input("End Date",
+                                value=max_date,
+                                min_value=min_date,
+                                max_value=max_date)
     
-    st.subheader("Data Preview")
-    st.write(data.head())
+    # convert data type
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+    
+    # verify the date range
+    if start_date >= end_date:
+        st.error("error: Start date must be before end date.")
+        st.stop()
+    
+    # show the selected data preview
+    st.subheader(f"selected dates from ({start_date.date()} to {end_date.date()})")
+    filtered_preview = data[(data.index >= start_date) & (data.index <= end_date)]
+    st.write(filtered_preview.head())
+    
     
     # input parameters
     st.sidebar.header("Option Parameters")
@@ -102,7 +133,7 @@ if uploaded_file:
         if 'Spot' not in data.columns:
             st.error("Data must contain 'Spot' column")
         else:
-            pnl, deltas, final_pnl = calculate_real_pnl(data, K, r, sigma, option_type, use_custom_T=use_custom_T, T_input=T_input if use_custom_T else None)
+            pnl, deltas, final_pnl = calculate_real_pnl(data, K, r, sigma, option_type, use_custom_T=use_custom_T, T_input=T_input if use_custom_T else None, start_date=start_date, end_date=end_date)
             cumulative_pnl = np.cumsum(pnl)
             
             # create interactive plot
@@ -135,7 +166,7 @@ if uploaded_file:
                 row=3, col=1
             )
             
-            # 添加最终损益标记
+            # 
             fig.add_annotation(
                 x=data.index[-1],
                 y=final_pnl,
